@@ -12,6 +12,7 @@ import pickle
 
 import tensorflow as tf
 import math
+import os
 
 from tensorflow.python.keras.engine.base_layer import Layer
 from tensorflow.python.keras import backend
@@ -271,7 +272,8 @@ class batch_generator(tf.keras.utils.Sequence):
     def __getitem__(self, idx):
         'Generate one batch of data'
         
-        return self.batches[idx][0],self.batches[idx][1],[None]
+        return self.batches[idx][0],self.batches[idx][1]
+        #,[None]
     
     def get_sizes(self):
         return self.data_shapes, self.output_size, self.target_shape
@@ -415,8 +417,19 @@ class nrelaggs_model():
     def evaluate_model(self,data,y_true):
         test_loss,accuracy = self.model.evaluate(data,verbose=self.verbose)
         y_pred = self.model.predict(data)
-        auroc = roc_auc_score(y_true, y_pred)
+        if self.input_sizes[2] > 1:
+            auroc = []
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovo', average='macro'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovo', average='weighted'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovr', average='macro'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted'))
+        else:
+            auroc = roc_auc_score(y_true, y_pred)
         return accuracy, auroc
+
+    def predict(self,data):
+        y_pred = self.model.predict(data,verbose=self.verbose)
+        return y_pred
     
     def get_embedding(self,data):
         embedding = tf.keras.Model(inputs=self.model.inputs,
@@ -494,7 +507,8 @@ class seq_generator(tf.keras.utils.Sequence):
     def __getitem__(self, idx):
         'Generate one batch of data'
         
-        return self.batches[idx][0],self.batches[idx][1],[None]
+        return self.batches[idx][0],self.batches[idx][1]
+        #,[None]
     
     def get_sizes(self):
         return self.data_shapes, self.target_shape
@@ -554,12 +568,23 @@ class relaggs_model():
             callbacks = []
             
         self.model.fit(data,epochs=epochs,callbacks=callbacks,verbose=self.verbose)
-        
+
     def evaluate_model(self,data,y_true):
         test_loss,accuracy = self.model.evaluate(data,verbose=self.verbose)
         y_pred = self.model.predict(data,verbose=self.verbose)
-        auroc = roc_auc_score(y_true, y_pred)
+        if self.input_sizes[1] > 1:
+            auroc = []
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovo', average='macro'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovo', average='weighted'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovr', average='macro'))
+            auroc.append(roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted'))
+        else:
+            auroc = roc_auc_score(y_true, y_pred)
         return accuracy, auroc
+
+    def predict(self,data):
+        y_pred = self.model.predict(data,verbose=self.verbose)
+        return y_pred
     
     def evaluate_regression(self,data,y_true):
         test_loss,mse = self.model.evaluate(data,verbose=self.verbose)
@@ -573,92 +598,121 @@ class relaggs_model():
     
     
     
-class context_converter2():
+class context_converter_big():
     
-    def __init__(self, train_context, test_context=None, max_unique=20, verbose=0, stop_table=None):
-        self.train_context = train_context
-        self.test_context = test_context
+    def __init__(self, context, save_folder=None, limits=None, max_unique=20, stop_tables=[], save_step=100, verbose=0,numpy_folder=None):
+        self.context = context
         self.max_unique = max_unique
         self.verbose = verbose
-        self.stop_table = stop_table
+        self.stop_tables = stop_tables
+        self.save_folder = save_folder
+        self.save_step = save_step
+        self.limits = limits
+        self.numpy_folder = numpy_folder
         
+        if not self.save_folder is None:
+            if not os.path.exists(self.save_folder):
+                if self.verbose > 0:
+                    print("Generated folder: {}".format(self.save_folder))
+                os.makedirs(self.save_folder)
+            else:
+                if self.verbose > 0:
+                    print("Already there: {}".format(self.save_folder))
         
         self.build_structure_()
         
-    def get_train(self):
-        return self.data_train[0], self.data_train[1]
-    
-    def get_test(self):
-        return self.data_test[0], self.data_test[1]
+    def get_data(self):
+        return self.data[0], self.data[1]
     
     def get_plan(self):
         return self.plan
     
     def get_time(self):
-        return self.train_time + self.test_time
+        return self.run_time
         
     def build_structure_(self):
-        self.train_tables = self.preprocess_tables_()
-        if self.test_context is not None:
-            self.test_tables = self.preprocess_tables_(is_test=True)
-        else:
-            self.test_tables = None
+        self.tables = self.preprocess_tables_()
         if self.verbose > 0:
             print("tables done")
         
-        self.data_train, self.plan, self.train_time = self.gen_data_(is_test=False)
-        if self.test_context is not None:
-            self.data_test, _, self.test_time = self.gen_data_(is_test=True)
-        else:
-            self.data_test = (None, None)
-            self.test_time = 0.
+        self.data, self.plan, self.run_time = self.gen_data_()
         
     
     #generate aggregation plan
     def generate_agg_plan_(self):
-        data_tables = [self.train_context.target_table]
+        if not self.save_folder is None:
+            plan_path = "{}/agg_plan.p".format(self.save_folder)
+            if os.path.isfile(plan_path) and os.access(plan_path, os.R_OK):
+                agg_plan = pickle.load(open(plan_path,"rb"))
+                return agg_plan[0],agg_plan[1]
 
-        connections = list(self.train_context.connected.keys())
+        data_tables = [self.context.target_table]
+
+        connections = list(self.context.connected.keys())
 
         def rec_walk(cur,vis):
             out = ([],cur,cur)
             other_out = []
-            if cur != self.stop_table:
-                for con in connections:
-                    old,new = con
-                    if old == cur[0]:
-                        if new not in vis:
-                            len_new = len(data_tables)
-                            data_tables.append(new)
-                            out[0].append((new,len_new))
-                            other_out += rec_walk((new,len_new),vis+[new])
+            if cur[0] in self.stop_tables:
+                return []
+            for con in connections:
+                old,new = con
+                if old == cur[0]:
+                    if new not in vis:
+                        len_new = len(data_tables)
+                        data_tables.append(new)
+                        out[0].append((new,len_new))
+                        other_out += rec_walk((new,len_new),vis+[new])
 
             out = [out]+other_out
             if len(out[0][0]) == 0:
                 out = []
             return out
-        plan = rec_walk((self.train_context.target_table,0),[self.train_context.target_table])
+        plan = rec_walk((self.context.target_table,0),[self.context.target_table])
+
+        if not self.save_folder is None:
+            agg_plan = (data_tables,plan)
+            pickle.dump(agg_plan,open(plan_path,"wb"))
+
         return data_tables,plan
         
         
     #generate Dataset
-    def gen_data_(self,is_test=False):
+    def gen_data_(self):
         data_tables, plan = self.generate_agg_plan_()
 
         outputs = ([],[])
         
-        if is_test:
-            context = self.test_context
-            numpy_tables = self.test_tables
-        else:
-            context = self.train_context
-            numpy_tables = self.train_tables
+        context = self.context
+        numpy_tables = self.tables
 
         total_number = len(numpy_tables[context.target_table]["target"])
         done_number = 0
         times = []
-        start = time.time()
+
+        if not self.limits is None:
+            done_number = self.limits[0]
+        
+
+        if not self.save_folder is None:
+            gen_path = "{}/gen_data.p".format(self.save_folder)
+            if os.path.isfile(gen_path) and os.access(gen_path, os.R_OK):
+                saved_gen = pickle.load(open(gen_path,"rb"))
+                done_number = saved_gen[0]
+                times = saved_gen[1]
+                outputs = saved_gen[2]
+
+        
+
+
         for c,c_y in enumerate(numpy_tables[context.target_table]["target"]):
+            if c < done_number:
+                continue
+
+            if not self.limits is None:
+                if c >= self.limits[1]:
+                    break
+            start = time.time()
 
             outputs[1].append(c_y)
             out_data_ids = [[] for i in data_tables]
@@ -694,9 +748,18 @@ class context_converter2():
             done_number += 1
             end = time.time()
             times.append(end - start)
-            start = end
             if self.verbose > 0:
-                print("data: {}/{} in {:6.5f}s/entry".format(done_number,total_number,np.mean(times)),end="\r")
+                if not self.limits is None:
+                    done_print = done_number - self.limits[0]
+                    total_print = self.limits[1] - self.limits[0]
+                    print("data: {}/{} in {:6.5f}s/entry approximated time left: {:6.4f}h".format(done_print,total_print,np.mean(times),((total_print - done_print) * np.mean(times)) / (60*60)),end="\r")
+                else:
+                    print("data: {}/{} in {:6.5f}s/entry approximated time left: {:6.4f}h".format(done_number,total_number,np.mean(times),((total_number - done_number) * np.mean(times)) / (60*60)),end="\r")
+
+            if not self.save_folder is None:
+                if done_number % self.save_step == 0:
+                    saved_gen = (done_number,times,outputs)
+                    pickle.dump(saved_gen,open(gen_path,"wb"))
 
         if self.verbose > 0:
             print()
@@ -715,24 +778,28 @@ class context_converter2():
         
         
     #preprocess values
-    def preprocess_tables_(self,is_test=False):
+    def preprocess_tables_(self):
+        if not self.save_folder is None:
+            if self.numpy_folder is None:
+                table_path = "{}/numpy_tables.p".format(self.save_folder)
+            else:
+                table_path = "{}/numpy_tables.p".format(self.numpy_folder)
+            if os.path.isfile(table_path) and os.access(table_path, os.R_OK):
+                numpy_tables = pickle.load(open(table_path,"rb"))
+                return numpy_tables
+
+
         numpy_tables = dict()
         transformers = dict()
         kept_labels = dict()
-        context = self.train_context
-        
-        if is_test:
-            transformers = self.transformers
-            kept_labels = self.kept_labels
-            context = self.test_context
+        context = self.context
         
         for table in context.tables:
             
             table_entries = 0
             
-            if not is_test:
-                transformers[table] = dict()
-                kept_labels[table] = dict()
+            transformers[table] = dict()
+            kept_labels[table] = dict()
             numpy_tables[table] = dict()
 
             table_ids = set([context.pkeys[table]])
@@ -755,32 +822,23 @@ class context_converter2():
                 
                 elif not np.issubdtype(arrs[dom].dtype, np.number):
                     if len(np.unique(arrs[dom])) > self.max_unique:
-                        if is_test:
-                            keeps = kept_labels[table][dom]
-                        else:
-                            uniques,counts = np.unique(arrs[dom],return_counts=True)
-                            keeps = np.flip(uniques[np.argsort(counts)])[:self.max_unique]
-                            kept_labels[table][dom] = keeps
+                        uniques,counts = np.unique(arrs[dom],return_counts=True)
+                        keeps = np.flip(uniques[np.argsort(counts)])[:self.max_unique]
+                        kept_labels[table][dom] = keeps
                         arrs[dom][np.isin(arrs[dom],keeps,invert=True)] = 'other'
 
-                    if is_test:
-                        cur_trans = transformers[table][dom]
-                    else:
-                        cur_trans = LabelBinarizer()
-                        cur_trans.fit(arrs[dom])
-                        transformers[table][dom] = cur_trans
+                    cur_trans = LabelBinarizer()
+                    cur_trans.fit(arrs[dom])
+                    transformers[table][dom] = cur_trans
                     arrs[dom] = cur_trans.transform(arrs[dom])
                     if table == context.target_table and dom == context.target_att:
                         numpy_tables[table]["target"] = arrs[dom]
                     else:
                         table_values.append(arrs[dom])
                 else:
-                    if is_test:
-                        cur_trans = transformers[table][dom]
-                    else:
-                        cur_trans = MinMaxScaler()
-                        cur_trans.fit(arrs[dom])
-                        transformers[table][dom] = cur_trans
+                    cur_trans = MinMaxScaler()
+                    cur_trans.fit(arrs[dom])
+                    transformers[table][dom] = cur_trans
                     arrs[dom] = cur_trans.transform(arrs[dom])
                     if table == context.target_table and dom == context.target_att:
                         numpy_tables[table]["target"] = arrs[dom]
@@ -795,9 +853,10 @@ class context_converter2():
             numpy_tables[table]["value"] = np.concatenate([numpy_tables[table]["value"],
                                                       np.zeros((1,numpy_tables[table]["value"].shape[1]))])
             
-        if not is_test:
-            self.transformers = transformers
-            self.kept_labels = kept_labels
+        #self.transformers = transformers
+        #self.kept_labels = kept_labels
+        if not self.save_folder is None:
+            pickle.dump(numpy_tables,open(table_path,"wb"))
             
         return numpy_tables
 
