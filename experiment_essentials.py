@@ -444,7 +444,7 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                         cur_score = 0.
                         skf = StratifiedKFold(n_splits=3)
                         #Fixing Multi-Class Case
-                        if y.shape[-1] != 1:
+                        if train_data[1].shape[-1] != 1:
                             y_split = np.where(train_data[1]==1)[1]
                         else:
                             y_split = train_data[1]
@@ -512,7 +512,7 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                 cur_score = 0.
                 skf = StratifiedKFold(n_splits=3)
                 #Fixing Multi-Class Case
-                if y.shape[-1] != 1:
+                if train_data[1].shape[-1] != 1:
                     y_split = np.where(train_data[1]==1)[1]
                 else:
                     y_split = train_data[1]
