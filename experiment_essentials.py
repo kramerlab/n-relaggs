@@ -378,7 +378,12 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
             for predictor_layers in predictor_layers_:
                 cur_score = 0.
                 skf = StratifiedKFold(n_splits=3)
-                for train_index, test_index in skf.split(X,y):
+                #Fixing Multi-Class Case
+                if y.shape[-1] != 1:
+                    y_split = np.where(y==1)[1]
+                else:
+                    y_split = y
+                for train_index, test_index in skf.split(X,y_split):
                     X_train, X_val = X[train_index], X[test_index]
                     y_train, y_val = y[train_index], y[test_index]
 
@@ -438,7 +443,12 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                     for feature_selection in feature_selection_:
                         cur_score = 0.
                         skf = StratifiedKFold(n_splits=3)
-                        for train_index, test_index in skf.split(train_data[1], train_data[1]):
+                        #Fixing Multi-Class Case
+                        if y.shape[-1] != 1:
+                            y_split = np.where(train_data[1]==1)[1]
+                        else:
+                            y_split = train_data[1]
+                        for train_index, test_index in skf.split(y_split, y_split):
                             X_train = [train_data[0][i] for i in train_index]
                             X_val = [train_data[0][i] for i in test_index]
                             y_train, y_val = train_data[1][train_index], train_data[1][test_index]
@@ -501,7 +511,12 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
             for predictor_layers in predictor_layers_:
                 cur_score = 0.
                 skf = StratifiedKFold(n_splits=3)
-                for train_index, test_index in skf.split(train_data[1], train_data[1]):
+                #Fixing Multi-Class Case
+                if y.shape[-1] != 1:
+                    y_split = np.where(train_data[1]==1)[1]
+                else:
+                    y_split = train_data[1]
+                for train_index, test_index in skf.split(y_split, y_split):
                     X_train = [train_data[0][i] for i in train_index]
                     X_val = [train_data[0][i] for i in test_index]
                     y_train, y_val = train_data[1][train_index], train_data[1][test_index]
