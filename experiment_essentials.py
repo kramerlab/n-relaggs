@@ -396,7 +396,10 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                     rel_model.train_model(train_batch,epochs)
 
                     acc,auroc = rel_model.evaluate_model(val_batch,y_val)
-                    cur_score += auroc
+                    if y.shape[-1] != 1:
+                        cur_score += auroc[0]
+                    else:
+                        cur_score += auroc
                     tf.keras.backend.clear_session()
 
                 if cur_score > best_score:
@@ -464,7 +467,10 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                             rel_model.train_model(train_batch,epochs)
                             
                             acc,auroc = rel_model.evaluate_model(val_batch,y_val)
-                            cur_score += auroc
+                            if train_data[1].shape[-1] != 1:
+                                cur_score += auroc[0]
+                            else:
+                                cur_score += auroc
                             tf.keras.backend.clear_session()
                         
                         if cur_score > best_score:
@@ -532,7 +538,10 @@ def experiment(algorithm,transformations,result_file,predictor_layers_,loss,feat
                     rel_model.train_model(train_batch,epochs)
                     
                     acc,auroc = rel_model.evaluate_model(val_batch,y_val)
-                    cur_score += auroc
+                    if train_data[1].shape[-1] != 1:
+                        cur_score += auroc[0]
+                    else:
+                        cur_score += auroc
                     tf.keras.backend.clear_session()
                 
                 if cur_score > best_score:
